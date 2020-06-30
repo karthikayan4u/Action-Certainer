@@ -3,13 +3,13 @@ import os
 import torch
 import pandas as pd
 import numpy as np
-from torch.utils.data import Dataset, random_split, DataLoader
+import math
+from torch.utils.data import DataLoader
 from PIL import Image
 import torchvision.models as models
 import matplotlib.pyplot as plt
 from tqdm.notebook import tqdm
 import torchvision.transforms as T
-from sklearn.metrics import f1_score
 import torch.nn.functional as F
 import torch.nn as nn
 from torchvision.datasets import ImageFolder
@@ -80,13 +80,13 @@ def F_score(output, label, threshold=0.5, beta=1):
     FP = (prob & (~label)).sum(1).float() #False Positive -> Total number of False prdictions that are actually True.
     FN = ((~prob) & label).sum(1).float() #False Negative -> Total number of True predictions that are actually False
 
-    precision = torch.mean(TP / (TP + FP + 1e-12)) #Predictions that are actually True among the Total Predicted True values.
-    recall = torch.mean(TP / (TP + FN + 1e-12)) #Predictions that are actually True among the Total actual True values.
+    precision = torch.mean(TP / (TP + FP + 1e-12)) #Predictions that are True among the Total Predicted True values.
+    recall = torch.mean(TP / (TP + FN + 1e-12)) #Predictions that are True among the Total actual True values.
     F2 = (1 + beta**2) * precision * recall / (beta**2 * precision + recall + 1e-12)
     return F2.mean(0)
 
 #This class is used for training and validation purposes which i have explained in my previous posts. For clarification you can refer there which I will linking down.
-class MultilabelImageClassificationBase(nn.Module):
+class ImageClassificationBase(nn.Module):
     def training_step(self, batch):
         images, targets= batch 
         out = self(images)                      
@@ -116,11 +116,11 @@ class MultilabelImageClassificationBase(nn.Module):
 Check out torchvision models: https://pytorch.org/docs/stable/torchvision/models.html
 """
 
-#There are more stae-of-the-Art pre-trained models which are mostly trained on ImageNet dataset. Resnet is one of them.
-resnet18 = models.resnet34(pretrained=True)
-resnet18
+#There are more State-of-the-Art pre-trained models which are mostly trained on ImageNet dataset. ResNet is one of them.
+resnet34 = models.resnet34(pretrained=True)
+resnet34
 
-class ProteinResnet(MultilabelImageClassificationBase):
+class ActionResNet(ImageClassificationBase):
     def __init__(self):
         super().__init__()
         # Using a pretrained model
@@ -236,17 +236,12 @@ def fit_one_cycle(epochs, max_lr, model, train_loader, val_loader,
         result['lrs'] = lrs
         model.epoch_end(epoch, result)
         history.append(result)
-        if(result['val_score']>=0.825):# and result['val_loss']<1.51):
-            break
     return history
 
 #Fit function for Learning_rate_finder
 def fit(epochs, start_lr,end_lr, model, train_loader, val_loader, opt_func=torch.optim.SGD):
     history = []
     lrs=[]
-
-    # Make lists to capture the logs
-    lr_find_lr = []
     
     # LR function lambda
 
@@ -268,17 +263,16 @@ def fit(epochs, start_lr,end_lr, model, train_loader, val_loader, opt_func=torch
             scheduler.step()
         #logging lr at each epoch end.
         lr_step = optimizer.state_dict()["param_groups"][0]["lr"]
-        lr_find_lr.append(lr_step)
 
         # Validation phase
         result = evaluate(model, val_loader)
         result['train_loss'] = torch.stack(train_losses).mean().item()
-        result['lrs'] = lr_find_lr
+        result['lrs'] = [lr_step]
         model.epoch_end(epoch, result)
         history.append(result)
     return history
 
-model = to_device(ProteinResnet(), device)
+model = to_device(ActionResNet(), device)
 
 model.unfreeze() #unfreezing to get the optimal learning rate.
 
@@ -295,13 +289,13 @@ opt_func = torch.optim.Adam
 
 #Plotting Learning_rate vs Training_Loss
 import matplotlib.pyplot as plt
-plt.semilogx([x.get('lrs') for x in history][-1],[x.get('train_loss') for x in history][1:])
+plt.semilogx([x.get('lrs') for x in history],[x.get('train_loss') for x in history])
 
-model = to_device(ProteinResnet(), device) #Re-initializing the model to start training.
+model = to_device(ActionResNet(), device) #Re-initializing the model to start training.
 
 #If you want load the weights and start testing the model,you can uncomment the below 2 lines and directly go to prediction section
-model.load_state_dict(torch.load("./savedmodelfight1.pth"))
-model.eval()
+#model.load_state_dict(torch.load("./savemodelweights.pth"))
+#model.eval()
 
 """First, freeze the ResNet layers and train some epochs. This only trains the final layer to start classifying the images."""
 
@@ -327,15 +321,15 @@ model.unfreeze()
 
 # Commented out IPython magic to ensure Python compatibility.
 # %%time 
-# history += fit_one_cycle(epochs, max_lr, model, train_dl, val_dl, 
+# history += fit_one_cycle(epochs, 1e-4 , model, train_dl, val_dl, 
 #                          grad_clip=grad_clip, 
 #                          weight_decay=weight_decay, 
 #                          opt_func=opt_func )
 
 #use the below line for saving the weights to a directory in pth format which you can use for next training i.e when you start again from the same spot you left training.
-torch.save(model.state_dict(), "savedmodelfight1.pth")
+torch.save(model.state_dict(), "savemodelweights.pth")
 
-#Now let's evaluate the model with final results.
+#Now let's evaluate the model to get final results on the performance.
 print([evaluate(model, val_dl)])
 
 #Let's now plot the validation F-beta scores.
@@ -384,6 +378,18 @@ def predict_single(image,label):
 
 """**Let us now predict using the model to see the performance.**"""
 
-predict_single(*val_ds[258])
+predict_single(*val_ds[300])
 
-predict_single(*val_ds[1500])
+predict_single(*val_ds[800])
+
+predict_single(*val_ds[1000])
+
+predict_single(*val_ds[1250])
+
+predict_single(*val_ds[2000])
+
+predict_single(*val_ds[4000])
+
+predict_single(*val_ds[4500])
+
+predict_single(*val_ds[6200])
